@@ -803,8 +803,8 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
             )?;
         }
         PasteMethod::CtrlV | PasteMethod::CtrlShiftV | PasteMethod::ShiftInsert => {
-            // Debug-gated receipt-sequenced paste (#502): restore the clipboard
-            // after the target actually reads the transcript, not on a timer.
+            // Receipt-sequenced paste (#502): restore the clipboard after the
+            // target actually reads the transcript, not on a timer.
             // On success it fully handles the paste (including auto-submit and
             // clipboard handling) asynchronously; on failure fall through to
             // the legacy path untouched.

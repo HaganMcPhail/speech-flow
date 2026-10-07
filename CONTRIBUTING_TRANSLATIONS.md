@@ -1,6 +1,6 @@
-# Contributing Translations to Handy
+# Contributing Translations
 
-Thank you for helping translate Handy! This guide explains how to add or improve translations.
+Thank you for helping translate speech-flow. This app is a fork of Handy. This guide explains how to add or improve translations in this repository.
 
 ## Quick Start
 

@@ -162,12 +162,13 @@ pub enum PasteMethod {
 pub enum ShortcutActivation {
     /// Press to start, press again to stop.
     Toggle,
-    /// Hold to record, release to stop.
+    /// Hold to record, release to stop. Fresh installs use this so letting go
+    /// of the hotkey always ends the recording.
+    #[default]
     PushToTalk,
     /// Hold to record and release to stop, or tap to keep recording until the
     /// next press. Which one it was is decided by how long the key was held
     /// (`hold_threshold_ms`).
-    #[default]
     HoldOrToggle,
 }
 
@@ -489,10 +490,12 @@ pub struct AppSettings {
     pub paste_delay_ms: u64,
     #[serde(default = "default_paste_delay_after_ms")]
     pub paste_delay_after_ms: u64,
-    /// Debug-gated ("beta") receipt-sequenced paste: restore the clipboard only
-    /// after the target app actually reads the transcript, instead of after a
-    /// fixed delay. See `paste_tx`. macOS and Windows only.
-    #[serde(default)]
+    /// Receipt-sequenced paste: restore the clipboard only after the target app
+    /// actually reads the transcript, instead of after a fixed delay. See
+    /// `paste_tx`. Fresh installs enable this on macOS; other platforms stay
+    /// off. If the receipt transaction cannot start, paste falls back to the
+    /// legacy timer path. macOS and Windows only.
+    #[serde(default = "default_reliable_paste")]
     pub reliable_paste: bool,
     #[serde(default = "default_typing_tool")]
     pub typing_tool: TypingTool,
@@ -563,7 +566,15 @@ fn default_autostart_enabled() -> bool {
 }
 
 fn default_update_checks_enabled() -> bool {
-    true
+    // Fresh installs stay quiet. A saved `true` is left alone so someone who
+    // already opted in keeps checking.
+    false
+}
+
+/// macOS fresh installs restore the clipboard from a pasteboard read receipt.
+/// Other platforms keep the timer path unless the user turns this on.
+fn default_reliable_paste() -> bool {
+    cfg!(target_os = "macos")
 }
 
 fn default_show_whats_new_on_update() -> bool {
@@ -980,7 +991,7 @@ pub fn get_default_settings() -> AppSettings {
         show_tray_icon: default_show_tray_icon(),
         paste_delay_ms: default_paste_delay_ms(),
         paste_delay_after_ms: default_paste_delay_after_ms(),
-        reliable_paste: false,
+        reliable_paste: default_reliable_paste(),
         typing_tool: default_typing_tool(),
         external_script_path: None,
         filler_word_removal_enabled: default_filler_word_removal_enabled(),
@@ -1146,8 +1157,9 @@ fn apply_settings_migrations(
 
     // One-time shortcut activation migration (only while the new key is
     // absent): the retired `push_to_talk` bool maps onto the two legacy modes so
-    // upgrading users keep exactly the behavior they had. Only fresh installs
-    // get the hold-or-toggle default.
+    // upgrading users keep exactly the behavior they had. A store that already
+    // has `shortcut_activation` is not rewritten. Fresh installs, which never
+    // enter this branch, get `ShortcutActivation::default()` (push-to-talk).
     if settings_value.get("shortcut_activation").is_none() {
         if let Some(push_to_talk) = settings_value.get("push_to_talk").and_then(|v| v.as_bool()) {
             settings.shortcut_activation = if push_to_talk {
@@ -1309,10 +1321,9 @@ mod tests {
     fn empty_store_parses_with_defaults() {
         let settings: AppSettings = serde_json::from_value(serde_json::json!({}))
             .expect("all AppSettings fields need serde defaults");
-        assert_eq!(
-            settings.shortcut_activation,
-            ShortcutActivation::HoldOrToggle
-        );
+        assert_eq!(settings.shortcut_activation, ShortcutActivation::PushToTalk);
+        assert!(!settings.update_checks_enabled);
+        assert_eq!(settings.reliable_paste, default_reliable_paste());
         assert_eq!(settings.hold_threshold_ms, default_hold_threshold_ms());
         assert!(!settings.audio_feedback);
         assert!(settings.filler_word_removal_enabled);
@@ -1668,14 +1679,59 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_activation_defaults_to_hold_or_toggle_without_legacy_key() {
+    fn shortcut_activation_keeps_fresh_default_without_legacy_key() {
         let mut settings = get_default_settings();
         let raw = serde_json::json!({ "selected_model": "" });
+
+        apply_settings_migrations(&mut settings, &raw);
+        assert_eq!(settings.shortcut_activation, ShortcutActivation::PushToTalk);
+    }
+
+    /// A store that already recorded these choices must keep them. The new
+    /// defaults apply only when the keys are absent (fresh install or a store
+    /// from before the field existed).
+    #[test]
+    fn migrations_do_not_overwrite_saved_activation_updates_or_paste() {
+        let mut settings = get_default_settings();
+        settings.shortcut_activation = ShortcutActivation::HoldOrToggle;
+        settings.update_checks_enabled = true;
+        settings.reliable_paste = false;
+
+        let raw = serde_json::json!({
+            "settings_schema_version": CURRENT_SETTINGS_SCHEMA_VERSION,
+            "onboarding_completed": true,
+            "whats_new_last_seen_version": "1.0.0",
+            "overlay_style": "live",
+            "chinese_script": "as_transcribed",
+            "shortcut_activation": "hold_or_toggle",
+            "update_checks_enabled": true,
+            "reliable_paste": false
+        });
 
         apply_settings_migrations(&mut settings, &raw);
         assert_eq!(
             settings.shortcut_activation,
             ShortcutActivation::HoldOrToggle
+        );
+        assert!(settings.update_checks_enabled);
+        assert!(!settings.reliable_paste);
+    }
+
+    #[test]
+    fn fresh_install_uses_push_to_talk_and_keeps_the_platform_hotkey() {
+        let settings = get_default_settings();
+        assert_eq!(settings.shortcut_activation, ShortcutActivation::PushToTalk);
+        assert!(!settings.update_checks_enabled);
+        assert_eq!(settings.reliable_paste, cfg!(target_os = "macos"));
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            settings.bindings["transcribe"].current_binding,
+            "option+space"
+        );
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        assert_eq!(
+            settings.bindings["transcribe"].current_binding,
+            "ctrl+space"
         );
     }
 

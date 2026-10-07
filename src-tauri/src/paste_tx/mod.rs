@@ -1,4 +1,4 @@
-//! Receipt-sequenced clipboard paste ("reliable paste", debug-gated).
+//! Receipt-sequenced clipboard paste ("reliable paste").
 //!
 //! The legacy clipboard paste (`clipboard::paste_via_clipboard`) restores the
 //! previous clipboard after a fixed delay. The paste keystroke is only
