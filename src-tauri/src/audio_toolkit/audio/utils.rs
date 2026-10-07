@@ -11,8 +11,10 @@ use std::path::Path;
 /// audio that was recorded while the key was still down, and it does not keep
 /// the microphone open after release. Recordings shorter than one second were
 /// zero-padded to 1.25s, but a longer sentence was transcribed exactly as
-/// captured. Parakeet and Whisper often drop the final period unless that
-/// pause is in the buffer.
+/// captured. The tail is appended after VAD and resampling, and the ONNX
+/// Parakeet batch decoder keeps those zeros. Parakeet still omits the final
+/// period on a long utterance, so text cleanup adds one when the transcript
+/// ends on a letter or digit.
 pub const SENTENCE_END_SILENCE_MS: usize = 400;
 
 /// Zero samples appended so an endpoint model can emit sentence-final punctuation.

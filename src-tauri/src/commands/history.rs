@@ -95,10 +95,15 @@ pub async fn retry_history_entry_transcription(
 
     let processed =
         process_transcription_output(&app, &transcription, entry.post_process_requested).await;
+    let stored_transcription = if processed.post_processed_text.is_none() {
+        processed.final_text
+    } else {
+        transcription
+    };
     history_manager
         .update_transcription(
             id,
-            transcription,
+            stored_transcription,
             processed.post_processed_text,
             processed.post_process_prompt,
         )

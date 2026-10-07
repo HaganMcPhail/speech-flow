@@ -1,6 +1,7 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
+use crate::audio_toolkit::text::punctuate_unless_llm;
 use crate::audio_toolkit::{
     is_microphone_access_denied, is_no_input_device_error, sentence_end_silence, VadPolicy,
 };
@@ -379,6 +380,11 @@ pub(crate) async fn process_transcription_output(
         }
     }
 
+    // A successful LLM cleanup owns the punctuation, including local cleanup
+    // once that path sets `post_process`. The period rule runs only when
+    // cleanup is off or returns nothing.
+    final_text = punctuate_unless_llm(&final_text, post_processed_text.as_deref());
+
     ProcessedTranscription {
         final_text,
         post_processed_text,
@@ -733,9 +739,18 @@ impl ShortcutAction for TranscribeAction {
 
                             // Save to history if WAV was saved
                             if wav_saved {
+                                // History copy uses transcription_text. When no
+                                // LLM rewrite ran, store the same string that
+                                // was pasted, period included.
+                                let stored_transcription =
+                                    if processed.post_processed_text.is_none() {
+                                        processed.final_text.clone()
+                                    } else {
+                                        transcription
+                                    };
                                 if let Err(err) = hm.save_entry(
                                     file_name,
-                                    transcription,
+                                    stored_transcription,
                                     post_process,
                                     processed.post_processed_text.clone(),
                                     processed.post_process_prompt.clone(),
