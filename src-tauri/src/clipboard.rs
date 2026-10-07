@@ -777,9 +777,12 @@ pub fn paste(text: String, app_handle: AppHandle) -> Result<(), String> {
     let paste_delay_ms = settings.paste_delay_ms;
     let paste_delay_after_ms = settings.paste_delay_after_ms;
 
-    // Append trailing space if setting is enabled
+    // Separate this dictation from text already at the caret. The optional
+    // trailing-space setting still applies after that, for people who want a
+    // space at the end of every paste.
+    let text = crate::dictation_spacing::apply_leading_space(&text);
     let text = if settings.append_trailing_space {
-        format!("{} ", text)
+        format!("{text} ")
     } else {
         text
     };

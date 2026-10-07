@@ -1,7 +1,10 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
-use crate::audio_toolkit::{is_microphone_access_denied, is_no_input_device_error, VadPolicy};
+use crate::audio_toolkit::text::punctuate_unless_llm;
+use crate::audio_toolkit::{
+    is_microphone_access_denied, is_no_input_device_error, sentence_end_silence, VadPolicy,
+};
 use crate::managers::audio::AudioRecordingManager;
 use crate::managers::history::HistoryManager;
 use crate::managers::model::ModelManager;
@@ -377,6 +380,11 @@ pub(crate) async fn process_transcription_output(
         }
     }
 
+    // A successful LLM cleanup owns the punctuation, including local cleanup
+    // once that path sets `post_process`. The period rule runs only when
+    // cleanup is off or returns nothing.
+    final_text = punctuate_unless_llm(&final_text, post_processed_text.as_deref());
+
     ProcessedTranscription {
         final_text,
         post_processed_text,
@@ -647,6 +655,11 @@ impl ShortcutAction for TranscribeAction {
                     // Transcribe concurrently with WAV save. If a live stream was
                     // running, finalize it and use its text (all audio was already
                     // fed to the stream); otherwise batch-transcribe the samples.
+                    // The stream only heard audio from while the key was down.
+                    // Feed the same sentence-end silence the batch buffer now
+                    // ends with, before finalize, so the ordered stream commands
+                    // decode that pause before the model is closed.
+                    tm.feed_active_stream(&sentence_end_silence());
                     let transcription_time = Instant::now();
                     let transcription_result = match tm.finalize_stream() {
                         // A finalized stream with usable text wins. An empty result
@@ -726,9 +739,18 @@ impl ShortcutAction for TranscribeAction {
 
                             // Save to history if WAV was saved
                             if wav_saved {
+                                // History copy uses transcription_text. When no
+                                // LLM rewrite ran, store the same string that
+                                // was pasted, period included.
+                                let stored_transcription =
+                                    if processed.post_processed_text.is_none() {
+                                        processed.final_text.clone()
+                                    } else {
+                                        transcription
+                                    };
                                 if let Err(err) = hm.save_entry(
                                     file_name,
-                                    transcription,
+                                    stored_transcription,
                                     post_process,
                                     processed.post_processed_text.clone(),
                                     processed.post_process_prompt.clone(),

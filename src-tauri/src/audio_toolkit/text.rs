@@ -476,6 +476,54 @@ pub fn normalize_transcription_output(text: &str) -> String {
     normalized.trim().to_string()
 }
 
+/// Add a sentence period when the model left the transcript ending on a word.
+///
+/// Parakeet's batch decoder receives the silence tail and still omits the
+/// final period on longer utterances. This only fills that gap: a transcript
+/// that already ends in punctuation, including a comma or question mark, is
+/// returned unchanged. Call it on the rule-cleaned text, not on a successful
+/// LLM cleanup result.
+pub fn ensure_terminal_period(text: &str) -> String {
+    let trimmed = text.trim_end();
+    let Some(last) = trimmed.chars().next_back() else {
+        return text.to_string();
+    };
+    if !last.is_alphanumeric() {
+        return text.to_string();
+    }
+
+    let mut out = trimmed.to_string();
+    out.push(terminal_period_for(last));
+    out
+}
+
+/// Paste text after the optional LLM step.
+///
+/// A cleanup result is used as written, so this rule does not add a period
+/// to text a local LLM already punctuated. When cleanup is off or returns
+/// nothing, [`ensure_terminal_period`] runs on the rule-cleaned transcript.
+pub fn punctuate_unless_llm(transcription: &str, llm_text: Option<&str>) -> String {
+    match llm_text {
+        Some(text) => text.to_string(),
+        None => ensure_terminal_period(transcription),
+    }
+}
+
+fn terminal_period_for(last: char) -> char {
+    if is_cjk_letter(last) {
+        '。'
+    } else {
+        '.'
+    }
+}
+
+fn is_cjk_letter(c: char) -> bool {
+    matches!(
+        c,
+        '\u{3040}'..='\u{30FF}' | '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}'
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -880,5 +928,58 @@ mod tests {
         let custom_words = vec!["你号".to_string()];
         let result = apply_custom_words(text, &custom_words, 1.0);
         assert_eq!(result, text);
+    }
+
+    #[test]
+    fn terminal_period_fills_a_word_ending() {
+        assert_eq!(ensure_terminal_period("or not"), "or not.");
+        assert_eq!(
+            ensure_terminal_period(
+                "This is me typing a long sentence, and I'm going to see if there's punctuation at the end or not"
+            ),
+            "This is me typing a long sentence, and I'm going to see if there's punctuation at the end or not."
+        );
+        assert_eq!(ensure_terminal_period("2024"), "2024.");
+        assert_eq!(ensure_terminal_period("café"), "café.");
+        assert_eq!(ensure_terminal_period("or not "), "or not.");
+    }
+
+    #[test]
+    fn terminal_period_leaves_existing_punctuation() {
+        assert_eq!(ensure_terminal_period("now."), "now.");
+        assert_eq!(ensure_terminal_period("Hello?"), "Hello?");
+        assert_eq!(ensure_terminal_period("Hello!"), "Hello!");
+        assert_eq!(ensure_terminal_period("hello,"), "hello,");
+        assert_eq!(ensure_terminal_period("wait…"), "wait…");
+        assert_eq!(ensure_terminal_period("done)"), "done)");
+        assert_eq!(ensure_terminal_period("你好。"), "你好。");
+        assert_eq!(ensure_terminal_period("「Handy。」"), "「Handy。」");
+    }
+
+    #[test]
+    fn terminal_period_leaves_empty_text() {
+        assert_eq!(ensure_terminal_period(""), "");
+        assert_eq!(ensure_terminal_period("   "), "   ");
+    }
+
+    #[test]
+    fn terminal_period_uses_an_ideographic_stop_for_cjk() {
+        assert_eq!(ensure_terminal_period("你好"), "你好。");
+        assert_eq!(ensure_terminal_period("これはテスト"), "これはテスト。");
+        assert_eq!(ensure_terminal_period("안녕"), "안녕.");
+    }
+
+    #[test]
+    fn llm_cleanup_is_not_given_a_rule_period() {
+        assert_eq!(punctuate_unless_llm("or not", Some("or not?")), "or not?");
+        assert_eq!(
+            punctuate_unless_llm("what time is it", Some("What time is it?")),
+            "What time is it?"
+        );
+        assert_eq!(
+            punctuate_unless_llm("ends with a letter", Some("ends with a letter")),
+            "ends with a letter"
+        );
+        assert_eq!(punctuate_unless_llm("or not", None), "or not.");
     }
 }

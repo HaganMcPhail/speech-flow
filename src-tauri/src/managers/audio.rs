@@ -1,5 +1,5 @@
 use crate::audio_toolkit::{
-    list_input_devices,
+    list_input_devices, prepare_transcription_audio,
     vad::{
         frames_for_duration_ms, EarshotVad, SmoothedVad, VAD_OFFLINE_HANGOVER_MS, VAD_ONSET_MS,
         VAD_PREFILL_MS, VAD_STREAMING_HANGOVER_MS,
@@ -229,8 +229,6 @@ fn restore_mute(prev_muted: Option<bool>) {
         set_mute(false);
     }
 }
-
-const WHISPER_SAMPLE_RATE: usize = 16000;
 
 /* ──────────────────────────────────────────────────────────────── */
 
@@ -1043,16 +1041,11 @@ impl AudioRecordingManager {
                     return None;
                 }
 
-                // Pad if very short
-                let s_len = samples.len();
-                // debug!("Got {} samples", s_len);
-                if s_len < WHISPER_SAMPLE_RATE && s_len > 0 {
-                    let mut padded = samples;
-                    padded.resize(WHISPER_SAMPLE_RATE * 5 / 4, 0.0);
-                    Some(padded)
-                } else {
-                    Some(samples)
-                }
+                // Short clips still get the historical 1.25s minimum. Every
+                // non-empty clip also gets a silence tail: without it, a sentence
+                // longer than a second ends on the last phoneme and the model
+                // often omits the final period.
+                Some(prepare_transcription_audio(samples))
             }
             _ => None,
         }

@@ -831,6 +831,12 @@ impl TranscriptionManager {
         Arc::clone(&self.router)
     }
 
+    /// Queue samples for the live stream, if one is open.
+    /// Batch-only models never open the router, so this is a no-op for them.
+    pub fn feed_active_stream(&self, pcm: &[f32]) {
+        self.router.feed(pcm);
+    }
+
     /// Begin a live streaming transcription on the held engine's session.
     /// Audio frames pushed via [`StreamRouter::feed`] (captured directly by the
     /// audio recorder) are decoded incrementally and emitted to the overlay as
