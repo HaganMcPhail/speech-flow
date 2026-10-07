@@ -458,6 +458,18 @@ pub struct AppSettings {
     pub auto_submit_key: AutoSubmitKey,
     #[serde(default = "default_post_process_enabled")]
     pub post_process_enabled: bool,
+    /// Local model cleanup on the main hotkey. Off until turned on. A saved
+    /// false is left as the user set it.
+    #[serde(default = "default_cleanup_enabled")]
+    pub cleanup_enabled: bool,
+    /// OpenAI-compatible base URL. Requests are refused unless the host is
+    /// loopback. Fresh installs use Ollama's default.
+    #[serde(default = "default_cleanup_base_url")]
+    pub cleanup_base_url: String,
+    /// Model name on that local server, for example `qwen2.5:3b`. Empty skips
+    /// the request and pastes the rule-cleaned transcript.
+    #[serde(default)]
+    pub cleanup_model: String,
     #[serde(default = "default_post_process_provider_id")]
     pub post_process_provider_id: String,
     #[serde(default = "default_post_process_providers")]
@@ -677,60 +689,22 @@ fn default_show_tray_icon() -> bool {
 }
 
 fn default_post_process_provider_id() -> String {
-    "openai".to_string()
+    "custom".to_string()
+}
+
+fn default_cleanup_enabled() -> bool {
+    false
+}
+
+fn default_cleanup_base_url() -> String {
+    "http://127.0.0.1:11434/v1".to_string()
 }
 
 fn default_post_process_providers() -> Vec<PostProcessProvider> {
-    let mut providers = vec![
-        PostProcessProvider {
-            id: "openai".to_string(),
-            label: "OpenAI".to_string(),
-            base_url: "https://api.openai.com/v1".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: true,
-        },
-        PostProcessProvider {
-            id: "zai".to_string(),
-            label: "Z.AI".to_string(),
-            base_url: "https://api.z.ai/api/paas/v4".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: true,
-        },
-        PostProcessProvider {
-            id: "openrouter".to_string(),
-            label: "OpenRouter".to_string(),
-            base_url: "https://openrouter.ai/api/v1".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: true,
-        },
-        PostProcessProvider {
-            id: "anthropic".to_string(),
-            label: "Anthropic".to_string(),
-            base_url: "https://api.anthropic.com/v1".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: false,
-        },
-        PostProcessProvider {
-            id: "groq".to_string(),
-            label: "Groq".to_string(),
-            base_url: "https://api.groq.com/openai/v1".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: false,
-        },
-        PostProcessProvider {
-            id: "cerebras".to_string(),
-            label: "Cerebras".to_string(),
-            base_url: "https://api.cerebras.ai/v1".to_string(),
-            allow_base_url_edit: false,
-            models_endpoint: Some("/models".to_string()),
-            supports_structured_output: true,
-        },
-    ];
+    // speech-flow cleanup talks only to a model on this computer. Cloud
+    // providers are not offered. A saved store may still contain them; the
+    // client refuses any non-loopback URL.
+    let mut providers = Vec::new();
 
     // Note: We always include Apple Intelligence on macOS ARM64 without checking availability
     // at startup. The availability check is deferred to when the user actually tries to use it
@@ -748,25 +722,17 @@ fn default_post_process_providers() -> Vec<PostProcessProvider> {
         });
     }
 
-    // AWS Bedrock via Mantle (OpenAI-compatible endpoint)
-    providers.push(PostProcessProvider {
-        id: "bedrock_mantle".to_string(),
-        label: "AWS Bedrock (Mantle)".to_string(),
-        base_url: "https://bedrock-mantle.us-east-1.api.aws/v1".to_string(),
-        allow_base_url_edit: false,
-        models_endpoint: Some("/models".to_string()),
-        supports_structured_output: true,
-    });
-
-    // Custom provider always comes last
-    providers.push(PostProcessProvider {
-        id: "custom".to_string(),
-        label: "Custom".to_string(),
-        base_url: "http://localhost:11434/v1".to_string(),
-        allow_base_url_edit: true,
-        models_endpoint: Some("/models".to_string()),
-        supports_structured_output: false,
-    });
+    providers.insert(
+        0,
+        PostProcessProvider {
+            id: "custom".to_string(),
+            label: "Local".to_string(),
+            base_url: default_cleanup_base_url(),
+            allow_base_url_edit: true,
+            models_endpoint: Some("/models".to_string()),
+            supports_structured_output: false,
+        },
+    );
 
     providers
 }
@@ -975,12 +941,15 @@ pub fn get_default_settings() -> AppSettings {
         auto_submit: default_auto_submit(),
         auto_submit_key: AutoSubmitKey::default(),
         post_process_enabled: default_post_process_enabled(),
+        cleanup_enabled: default_cleanup_enabled(),
+        cleanup_base_url: default_cleanup_base_url(),
+        cleanup_model: String::new(),
         post_process_provider_id: default_post_process_provider_id(),
         post_process_providers: default_post_process_providers(),
         post_process_api_keys: default_post_process_api_keys(),
         post_process_models: default_post_process_models(),
         post_process_prompts: default_post_process_prompts(),
-        post_process_selected_prompt_id: None,
+        post_process_selected_prompt_id: Some("default_improve_transcriptions".to_string()),
         mute_while_recording: false,
         append_trailing_space: false,
         app_language: default_app_language(),
@@ -1014,12 +983,6 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
-    pub fn active_post_process_provider(&self) -> Option<&PostProcessProvider> {
-        self.post_process_providers
-            .iter()
-            .find(|provider| provider.id == self.post_process_provider_id)
-    }
-
     pub fn post_process_provider(&self, provider_id: &str) -> Option<&PostProcessProvider> {
         self.post_process_providers
             .iter()
@@ -1323,6 +1286,9 @@ mod tests {
             .expect("all AppSettings fields need serde defaults");
         assert_eq!(settings.shortcut_activation, ShortcutActivation::PushToTalk);
         assert!(!settings.update_checks_enabled);
+        assert!(!settings.cleanup_enabled);
+        assert_eq!(settings.cleanup_base_url, default_cleanup_base_url());
+        assert!(settings.cleanup_model.is_empty());
         assert_eq!(settings.reliable_paste, default_reliable_paste());
         assert_eq!(settings.hold_threshold_ms, default_hold_threshold_ms());
         assert!(!settings.audio_feedback);
@@ -1722,6 +1688,15 @@ mod tests {
         let settings = get_default_settings();
         assert_eq!(settings.shortcut_activation, ShortcutActivation::PushToTalk);
         assert!(!settings.update_checks_enabled);
+        assert!(!settings.cleanup_enabled);
+        assert_eq!(settings.cleanup_base_url, "http://127.0.0.1:11434/v1");
+        assert_eq!(
+            settings.post_process_selected_prompt_id.as_deref(),
+            Some("default_improve_transcriptions")
+        );
+        assert!(settings.post_process_providers.iter().all(
+            |provider| provider.id == "custom" || provider.id == APPLE_INTELLIGENCE_PROVIDER_ID
+        ));
         assert_eq!(settings.reliable_paste, cfg!(target_os = "macos"));
         #[cfg(target_os = "macos")]
         assert_eq!(

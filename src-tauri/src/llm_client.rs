@@ -1,11 +1,65 @@
 use crate::settings::PostProcessProvider;
 use log::{debug, error, info};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
+
+/// Bound for one local cleanup request, including a reasoning-field retry.
+/// A timeout or connection failure pastes the rule-cleaned transcript instead.
+pub(crate) const CLEANUP_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// True when `raw` is an http(s) URL whose host is loopback.
+/// Hostnames other than `localhost` are rejected without a DNS lookup.
+pub(crate) fn is_loopback_base_url(raw: &str) -> bool {
+    let raw = raw.trim();
+    let Some(rest) = raw
+        .strip_prefix("http://")
+        .or_else(|| raw.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    if rest.is_empty() {
+        return false;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() {
+        return false;
+    }
+    let hostport = authority.rsplit('@').next().unwrap_or(authority);
+    let host = if let Some(inner) = hostport
+        .strip_prefix('[')
+        .and_then(|value| value.split(']').next())
+    {
+        inner
+    } else {
+        hostport.split(':').next().unwrap_or("")
+    };
+    matches!(
+        host.to_ascii_lowercase().as_str(),
+        "localhost" | "127.0.0.1" | "::1"
+    )
+}
+
+pub(crate) fn loopback_cleanup_provider(base_url: &str) -> Result<PostProcessProvider, String> {
+    let base_url = base_url.trim().trim_end_matches('/').to_string();
+    if !is_loopback_base_url(&base_url) {
+        return Err(
+            "Cleanup only accepts a loopback address (127.0.0.1, localhost, or ::1).".to_string(),
+        );
+    }
+    Ok(PostProcessProvider {
+        id: "custom".to_string(),
+        label: "Local".to_string(),
+        base_url,
+        allow_base_url_edit: true,
+        models_endpoint: Some("/models".to_string()),
+        supports_structured_output: false,
+    })
+}
 
 #[derive(Debug, Serialize)]
 struct ChatMessage {
@@ -139,17 +193,7 @@ struct ChatMessageResponse {
 fn build_headers(provider: &PostProcessProvider, api_key: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
 
-    // Common headers
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-    headers.insert(
-        REFERER,
-        HeaderValue::from_static("https://github.com/cjpais/Handy"),
-    );
-    headers.insert(
-        USER_AGENT,
-        HeaderValue::from_static("Handy/1.0 (+https://github.com/cjpais/Handy)"),
-    );
-    headers.insert("X-Title", HeaderValue::from_static("Handy"));
 
     // Provider-specific auth headers
     if !api_key.is_empty() {
@@ -177,6 +221,8 @@ fn create_client(provider: &PostProcessProvider, api_key: &str) -> Result<reqwes
     let headers = build_headers(provider, api_key)?;
     reqwest::Client::builder()
         .default_headers(headers)
+        .timeout(CLEANUP_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| report_reqwest_error("Failed to build HTTP client", &e))
 }
@@ -335,6 +381,12 @@ pub async fn send_chat_completion_with_schema(
     json_schema: Option<Value>,
     disable_reasoning: bool,
 ) -> Result<Option<String>, String> {
+    if !is_loopback_base_url(&provider.base_url) {
+        return Err(
+            "Cleanup only accepts a loopback address (127.0.0.1, localhost, or ::1).".to_string(),
+        );
+    }
+
     let base_url = provider.base_url.trim_end_matches('/');
     let url = format!("{}/chat/completions", base_url);
 
@@ -467,6 +519,12 @@ pub async fn fetch_models(
     provider: &PostProcessProvider,
     api_key: String,
 ) -> Result<Vec<String>, String> {
+    if !is_loopback_base_url(&provider.base_url) {
+        return Err(
+            "Cleanup only accepts a loopback address (127.0.0.1, localhost, or ::1).".to_string(),
+        );
+    }
+
     let base_url = provider.base_url.trim_end_matches('/');
     let url = format!("{}/models", base_url);
 
@@ -718,6 +776,45 @@ mod tests {
             ..Default::default()
         }
         .is_empty());
+    }
+
+    #[test]
+    fn loopback_urls_are_accepted_and_cloud_urls_are_refused() {
+        assert!(is_loopback_base_url("http://127.0.0.1:11434/v1"));
+        assert!(is_loopback_base_url("http://127.0.0.1:11434/v1/"));
+        assert!(is_loopback_base_url("http://localhost:11434/v1"));
+        assert!(is_loopback_base_url("https://[::1]:11434/v1"));
+        assert!(!is_loopback_base_url("https://api.openai.com/v1"));
+        assert!(!is_loopback_base_url("http://192.168.1.20:11434/v1"));
+        assert!(!is_loopback_base_url("http://0.0.0.0:11434/v1"));
+        assert!(!is_loopback_base_url("http://127.0.0.1.evil.example/v1"));
+        assert!(!is_loopback_base_url("http://user:secret@example.com/v1"));
+        assert!(!is_loopback_base_url(""));
+    }
+
+    #[test]
+    fn cleanup_headers_do_not_identify_as_handy() {
+        let headers = build_headers(&provider("custom", "http://127.0.0.1:11434/v1"), "").unwrap();
+        assert!(headers.get("referer").is_none());
+        assert!(headers.get("user-agent").is_none());
+        assert!(headers.get("x-title").is_none());
+        let rendered = format!("{headers:?}").to_lowercase();
+        assert!(!rendered.contains("handy"));
+        assert!(!rendered.contains("cjpais"));
+    }
+
+    #[tokio::test]
+    async fn cloud_chat_completion_is_refused_before_a_request() {
+        let error = send_chat_completion(
+            &provider("openai", "https://api.openai.com/v1"),
+            String::new(),
+            "gpt-4o-mini",
+            "hello".to_string(),
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("loopback"));
     }
 
     #[test]

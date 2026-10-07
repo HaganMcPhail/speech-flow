@@ -214,6 +214,23 @@
         "noResults": "Nie znaleziono języków",
         "auto": "Automatycznie"
       },
+      "cleanup": {
+        "title": "Local cleanup",
+        "enabled": {
+          "label": "Clean up with a local model",
+          "description": "After you release the hotkey, send the transcript to a model running on this computer. If cleanup is off, the model is missing, or it does not answer in time, the original text is pasted."
+        },
+        "baseUrl": {
+          "label": "Cleanup server",
+          "description": "OpenAI-compatible address on this computer. Only a loopback address is allowed. Ollama listens at http://127.0.0.1:11434/v1.",
+          "placeholder": "http://127.0.0.1:11434/v1"
+        },
+        "model": {
+          "label": "Cleanup model",
+          "description": "Model name on that server. qwen2.5:3b is a small model that can finish inside the timeout on Apple Silicon.",
+          "placeholder": "qwen2.5:3b"
+        }
+      },
       "shortcutActivation": {
         "title": "Zachowanie skrótu",
         "description": "Wybierz, jak skrót transkrypcji rozpoczyna i zatrzymuje nagrywanie.",

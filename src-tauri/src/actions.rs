@@ -121,55 +121,53 @@ fn should_use_streaming_overlay(style: OverlayStyle, is_streaming: bool) -> bool
     style == OverlayStyle::Live && is_streaming
 }
 
+const DEFAULT_CLEANUP_PROMPT_ID: &str = "default_improve_transcriptions";
+
+fn selected_cleanup_prompt(settings: &AppSettings) -> Option<String> {
+    let selected_id = settings
+        .post_process_selected_prompt_id
+        .as_deref()
+        .filter(|id| !id.is_empty());
+    let prompt = settings
+        .post_process_prompts
+        .iter()
+        .find(|prompt| Some(prompt.id.as_str()) == selected_id)
+        .or_else(|| {
+            settings
+                .post_process_prompts
+                .iter()
+                .find(|prompt| prompt.id == DEFAULT_CLEANUP_PROMPT_ID)
+        })?;
+    if prompt.prompt.trim().is_empty() {
+        None
+    } else {
+        Some(prompt.prompt.clone())
+    }
+}
+
 async fn post_process_transcription(settings: &AppSettings, transcription: &str) -> Option<String> {
     if is_blank_transcription(transcription) {
         debug!("Post-processing skipped because the transcription is empty");
         return None;
     }
 
-    let provider = match settings.active_post_process_provider().cloned() {
-        Some(provider) => provider,
-        None => {
-            debug!("Post-processing enabled but no provider is selected");
-            return None;
-        }
-    };
-
-    let model = settings
-        .post_process_models
-        .get(&provider.id)
-        .cloned()
-        .unwrap_or_default();
-
-    if model.trim().is_empty() {
-        debug!(
-            "Post-processing skipped because provider '{}' has no model configured",
-            provider.id
-        );
+    let model = settings.cleanup_model.trim().to_string();
+    if model.is_empty() {
+        debug!("Cleanup skipped because no local model name is set");
         return None;
     }
 
-    let selected_prompt_id = match &settings.post_process_selected_prompt_id {
-        Some(id) => id.clone(),
-        None => {
-            debug!("Post-processing skipped because no prompt is selected");
+    let provider = match crate::llm_client::loopback_cleanup_provider(&settings.cleanup_base_url) {
+        Ok(provider) => provider,
+        Err(error) => {
+            debug!("Cleanup skipped: {error}");
             return None;
         }
     };
 
-    let prompt = match settings
-        .post_process_prompts
-        .iter()
-        .find(|prompt| prompt.id == selected_prompt_id)
-    {
-        Some(prompt) => prompt.prompt.clone(),
-        None => {
-            debug!(
-                "Post-processing skipped because prompt '{}' was not found",
-                selected_prompt_id
-            );
-            return None;
-        }
+    let Some(prompt) = selected_cleanup_prompt(settings) else {
+        debug!("Cleanup skipped because the improve-transcriptions prompt is missing");
+        return None;
     };
 
     if prompt.trim().is_empty() {
@@ -314,16 +312,26 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
     let processed_prompt = prompt.replace("${output}", transcription);
     debug!("Processed prompt length: {} chars", processed_prompt.len());
 
-    match crate::llm_client::send_chat_completion(
-        &provider,
-        api_key,
-        &model,
-        processed_prompt,
-        disable_reasoning,
+    match tokio::time::timeout(
+        crate::llm_client::CLEANUP_TIMEOUT,
+        crate::llm_client::send_chat_completion(
+            &provider,
+            api_key,
+            &model,
+            processed_prompt,
+            disable_reasoning,
+        ),
     )
     .await
     {
-        Ok(Some(content)) => {
+        Err(_) => {
+            debug!(
+                "Local cleanup timed out after {:?}; pasting the rule-cleaned transcript",
+                crate::llm_client::CLEANUP_TIMEOUT
+            );
+            None
+        }
+        Ok(Ok(Some(content))) => {
             let content = strip_invisible_chars(strip_think_block(&content));
             debug!(
                 "LLM post-processing succeeded for provider '{}'. Output length: {} chars",
@@ -332,15 +340,14 @@ async fn post_process_transcription(settings: &AppSettings, transcription: &str)
             );
             Some(content)
         }
-        Ok(None) => {
+        Ok(Ok(None)) => {
             error!("LLM API response has no content");
             None
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             error!(
                 "LLM post-processing failed for provider '{}': {}. Falling back to original transcription.",
-                provider.id,
-                e
+                provider.id, e
             );
             None
         }
@@ -608,7 +615,10 @@ impl ShortcutAction for TranscribeAction {
         play_feedback_sound(app, SoundType::Stop);
 
         let binding_id = binding_id.to_string(); // Clone binding_id for the async task
-        let post_process = self.post_process;
+                                                 // The main hotkey cleans up when that switch is on. The optional
+                                                 // second hotkey still forces it. Either way the request is the local
+                                                 // loopback model, and cancel drops the request before paste.
+        let post_process = self.post_process || get_settings(app).cleanup_enabled;
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -905,15 +915,39 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_unless_cancelled, is_blank_transcription, should_use_streaming_overlay,
-        strip_think_block,
+        complete_unless_cancelled, is_blank_transcription, selected_cleanup_prompt,
+        should_use_streaming_overlay, strip_think_block,
     };
-    use crate::settings::OverlayStyle;
+    use crate::settings::{get_default_settings, OverlayStyle};
     use std::future;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn unset_prompt_still_uses_the_improve_transcriptions_prompt() {
+        let mut settings = get_default_settings();
+        settings.post_process_selected_prompt_id = None;
+        let prompt = selected_cleanup_prompt(&settings).expect("default prompt");
+        assert!(prompt.contains("Fix spelling"));
+        assert!(prompt.contains("${output}"));
+    }
+
+    #[test]
+    fn an_explicit_prompt_wins_over_the_default() {
+        let mut settings = get_default_settings();
+        settings
+            .post_process_prompts
+            .push(crate::settings::LLMPrompt {
+                id: "custom-prompt".to_string(),
+                name: "Custom".to_string(),
+                prompt: "Keep it short. ${output}".to_string(),
+            });
+        settings.post_process_selected_prompt_id = Some("custom-prompt".to_string());
+        let prompt = selected_cleanup_prompt(&settings).expect("custom prompt");
+        assert!(prompt.starts_with("Keep it short."));
+    }
 
     #[test]
     fn blank_transcription_is_detected() {
