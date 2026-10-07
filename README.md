@@ -443,13 +443,9 @@ Adjust the executable path if needed. This override only applies to apps launche
 
 ### How to Contribute
 
-1. **Check existing issues** at [github.com/cjpais/Handy/issues](https://github.com/cjpais/Handy/issues)
-2. **Fork the repository** and create a feature branch
-3. **Test thoroughly** on your target platform
-4. **Submit a pull request** with clear description of changes
-5. **Join the discussion** - reach out at [contact@handy.computer](mailto:contact@handy.computer)
+speech-flow is developed in this repository. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, and open pull requests here with a summary, the changes, and how you tested them. Include what still needs a check on macOS when the change touches the hotkey, permissions, paste, or the clipboard.
 
-The goal is to create both a useful tool and a foundation for others to build upon—a well-patterned, simple codebase that serves the community.
+The app is a fork of [Handy](https://github.com/cjpais/Handy). Handy's own issue tracker and pull request rules are for that project, not for changes to speech-flow.
 
 ## Related Projects
 

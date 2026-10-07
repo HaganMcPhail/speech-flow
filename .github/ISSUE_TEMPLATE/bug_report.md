@@ -1,14 +1,10 @@
 ---
 name: Bug Report
-about: Create a report to help us improve Handy
+about: Report a bug in speech-flow
 title: "[BUG] "
 labels: ["bug"]
 assignees: ""
 ---
-
-## Before You Submit
-
-**Please search [existing issues](https://github.com/cjpais/Handy/issues) to avoid duplicates.** Your bug may already be reported! Right now it's just me maintaining this project so many issues can be overwhelming! Help me out by checking first.
 
 ## Bug Description
 
@@ -22,7 +18,7 @@ A clear and concise description of what the bug is.
 
 **Operating System:**
 
-<!-- e.g., macOS 14.1, Windows 11, Ubuntu 22.04 -->
+<!-- e.g., macOS 15, Windows 11, Ubuntu 24.04 -->
 
 **CPU:**
 
@@ -34,4 +30,8 @@ A clear and concise description of what the bug is.
 
 ## Logs
 
-<!-- Please attach relevant logs to help us diagnose the issue. You can find the log directory by going to Settings > About in the app. -->
+<!-- Please attach relevant logs. You can find the log directory in Settings > About. -->
+
+## macOS notes
+
+<!-- If this is macOS-only, say whether Accessibility and microphone access are granted, which hotkey you used, and whether paste or the clipboard was wrong. -->
