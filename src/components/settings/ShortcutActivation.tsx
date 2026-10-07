@@ -17,17 +17,17 @@ export const ShortcutActivationSetting: React.FC<ShortcutActivationProps> =
 
     const options = [
       {
-        value: "hold_or_toggle",
-        label: t("settings.general.shortcutActivation.options.holdOrToggle"),
-        description: t(
-          "settings.general.shortcutActivation.descriptions.hold_or_toggle",
-        ),
-      },
-      {
         value: "push_to_talk",
         label: t("settings.general.shortcutActivation.options.pushToTalk"),
         description: t(
           "settings.general.shortcutActivation.descriptions.push_to_talk",
+        ),
+      },
+      {
+        value: "hold_or_toggle",
+        label: t("settings.general.shortcutActivation.options.holdOrToggle"),
+        description: t(
+          "settings.general.shortcutActivation.descriptions.hold_or_toggle",
         ),
       },
       {
@@ -40,7 +40,7 @@ export const ShortcutActivationSetting: React.FC<ShortcutActivationProps> =
     ];
 
     const selected = (getSetting("shortcut_activation") ||
-      "hold_or_toggle") as ShortcutActivation;
+      "push_to_talk") as ShortcutActivation;
 
     return (
       <SettingContainer

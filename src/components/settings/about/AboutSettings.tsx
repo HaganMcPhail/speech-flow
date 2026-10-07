@@ -8,6 +8,7 @@ import { Button } from "../../ui/Button";
 import { AppDataDirectory } from "../AppDataDirectory";
 import { AppLanguageSelector } from "../AppLanguageSelector";
 import { ShowWhatsNewOnUpdate } from "../ShowWhatsNewOnUpdate";
+import { UpdateChecksToggle } from "../UpdateChecksToggle";
 import { ThemeSelector } from "../ThemeSelector";
 import { LogDirectory } from "../debug";
 
@@ -52,6 +53,7 @@ export const AboutSettings: React.FC = () => {
         </SettingContainer>
 
         <ShowWhatsNewOnUpdate descriptionMode="tooltip" grouped={true} />
+        <UpdateChecksToggle descriptionMode="tooltip" grouped={true} />
 
         <SettingContainer
           title={t("settings.about.supportDevelopment.title")}

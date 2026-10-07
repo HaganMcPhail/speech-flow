@@ -1,8 +1,8 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { ToggleSwitch } from "../../ui/ToggleSwitch";
-import { useSettings } from "../../../hooks/useSettings";
-import { useOsType } from "../../../hooks/useOsType";
+import { ToggleSwitch } from "../ui/ToggleSwitch";
+import { useSettings } from "../../hooks/useSettings";
+import { useOsType } from "../../hooks/useOsType";
 
 interface ReliablePasteToggleProps {
   descriptionMode?: "inline" | "tooltip";
@@ -18,13 +18,18 @@ export const ReliablePasteToggle: React.FC<ReliablePasteToggleProps> = ({
   const osType = useOsType();
 
   // The receipt-sequenced paste path is implemented for macOS and Windows.
+  // Linux keeps the timer path and has nothing to toggle.
   if (osType !== "macos" && osType !== "windows") {
     return null;
   }
 
+  // Match the fresh-install default while settings are still loading. A saved
+  // value, including an explicit off, replaces this as soon as it arrives.
+  const checked = getSetting("reliable_paste") ?? osType === "macos";
+
   return (
     <ToggleSwitch
-      checked={getSetting("reliable_paste") ?? false}
+      checked={checked}
       onChange={(enabled) => updateSetting("reliable_paste", enabled)}
       isUpdating={isUpdating("reliable_paste")}
       label={t("settings.debug.reliablePaste.title")}
