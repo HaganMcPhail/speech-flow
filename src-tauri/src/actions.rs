@@ -1,7 +1,7 @@
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::apple_intelligence;
 use crate::audio_feedback::{play_feedback_sound, play_feedback_sound_blocking, SoundType};
-use crate::audio_toolkit::text::punctuate_unless_llm;
+use crate::audio_toolkit::text::punctuate_for_paste;
 use crate::audio_toolkit::{
     is_microphone_access_denied, is_no_input_device_error, sentence_end_silence, VadPolicy,
 };
@@ -393,11 +393,10 @@ pub(crate) async fn process_transcription_output(
         }
     }
 
-    // `post_processed_text` is set only when cleanup returned text. The main
-    // hotkey does that when cleanup is enabled. Off, a request error, and the
-    // 3s timeout all leave it empty, and the period rule runs on that fallback.
-    // Paste applies the leading space to `final_text` either way.
-    final_text = punctuate_unless_llm(&final_text, post_processed_text.as_deref());
+    // Cleanup text wins when the model returned some. The period rule then
+    // runs on that reply, and on the transcript when cleanup is off, errors,
+    // or times out. Paste applies the leading space to `final_text` either way.
+    final_text = punctuate_for_paste(&final_text, post_processed_text.as_deref());
 
     ProcessedTranscription {
         final_text,
@@ -945,6 +944,8 @@ mod tests {
         settings.post_process_selected_prompt_id = None;
         let prompt = selected_cleanup_prompt(&settings).expect("default prompt");
         assert!(prompt.contains("Fix spelling"));
+        assert!(prompt.contains("End every complete sentence with punctuation"));
+        assert!(prompt.contains("No quotes, no preamble, and no explanation"));
         assert!(prompt.contains("${output}"));
     }
 
