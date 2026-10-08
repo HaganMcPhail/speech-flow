@@ -1050,6 +1050,34 @@ pub fn change_auto_submit_key_setting(app: AppHandle, key: String) -> Result<(),
 
 #[tauri::command]
 #[specta::specta]
+pub fn change_cleanup_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.cleanup_enabled = enabled;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_cleanup_base_url_setting(app: AppHandle, base_url: String) -> Result<(), String> {
+    let base_url = crate::llm_client::loopback_cleanup_provider(&base_url)?.base_url;
+    let mut settings = settings::get_settings(&app);
+    settings.cleanup_base_url = base_url;
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_cleanup_model_setting(app: AppHandle, model: String) -> Result<(), String> {
+    let mut settings = settings::get_settings(&app);
+    settings.cleanup_model = model.trim().to_string();
+    settings::write_settings(&app, settings);
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_post_process_enabled_setting(app: AppHandle, enabled: bool) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.post_process_enabled = enabled;

@@ -30,6 +30,20 @@ type PostProcessProviderState = {
 
 const APPLE_PROVIDER_ID = "apple_intelligence";
 
+function isLocalProvider(provider: PostProcessProvider): boolean {
+  if (provider.id === APPLE_PROVIDER_ID) {
+    return true;
+  }
+  try {
+    const host = new URL(provider.base_url).hostname
+      .replace(/^\[|\]$/g, "")
+      .toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 export const usePostProcessProviderState = (): PostProcessProviderState => {
   const {
     settings,
@@ -42,11 +56,18 @@ export const usePostProcessProviderState = (): PostProcessProviderState => {
     postProcessModelOptions,
   } = useSettings();
 
-  // Settings are guaranteed to have providers after migration
-  const providers = settings?.post_process_providers || [];
+  // Cloud providers stay out of this fork. A saved OpenAI-style entry is
+  // hidden here, and the client refuses its URL if something still selects it.
+  const providers = (settings?.post_process_providers || []).filter(
+    isLocalProvider,
+  );
 
   const selectedProviderId = useMemo(() => {
-    return settings?.post_process_provider_id || providers[0]?.id || "openai";
+    const saved = settings?.post_process_provider_id;
+    if (saved && providers.some((provider) => provider.id === saved)) {
+      return saved;
+    }
+    return providers[0]?.id || "custom";
   }, [providers, settings?.post_process_provider_id]);
 
   const selectedProvider = useMemo(() => {
