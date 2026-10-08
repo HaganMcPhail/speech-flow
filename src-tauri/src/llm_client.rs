@@ -44,6 +44,51 @@ pub(crate) fn is_loopback_base_url(raw: &str) -> bool {
     )
 }
 
+/// OpenAI-compatible models URL for a loopback cleanup server.
+pub(crate) fn cleanup_models_url(base_url: &str) -> Result<String, String> {
+    let provider = loopback_cleanup_provider(base_url)?;
+    Ok(format!("{}/models", provider.base_url))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CleanupServerProbe {
+    Reachable,
+    Unreachable,
+    NotLoopback,
+}
+
+impl CleanupServerProbe {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Reachable => "reachable",
+            Self::Unreachable => "unreachable",
+            Self::NotLoopback => "not_loopback",
+        }
+    }
+}
+
+/// Ask the local cleanup server for its model list. A missing server, a
+/// timeout, or a non-success status is unreachable. Non-loopback URLs are
+/// not contacted.
+pub(crate) async fn probe_cleanup_server(base_url: &str) -> CleanupServerProbe {
+    let url = match cleanup_models_url(base_url) {
+        Ok(url) => url,
+        Err(_) => return CleanupServerProbe::NotLoopback,
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return CleanupServerProbe::Unreachable,
+    };
+    match client.get(url).send().await {
+        Ok(response) if response.status().is_success() => CleanupServerProbe::Reachable,
+        _ => CleanupServerProbe::Unreachable,
+    }
+}
+
 pub(crate) fn loopback_cleanup_provider(base_url: &str) -> Result<PostProcessProvider, String> {
     let base_url = base_url.trim().trim_end_matches('/').to_string();
     if !is_loopback_base_url(&base_url) {
@@ -776,6 +821,16 @@ mod tests {
             ..Default::default()
         }
         .is_empty());
+    }
+
+    #[test]
+    fn cleanup_models_url_stays_on_loopback() {
+        assert_eq!(
+            cleanup_models_url("http://127.0.0.1:11434/v1/").unwrap(),
+            "http://127.0.0.1:11434/v1/models"
+        );
+        assert!(cleanup_models_url("https://api.openai.com/v1").is_err());
+        assert!(cleanup_models_url("http://192.168.1.20:11434/v1").is_err());
     }
 
     #[test]

@@ -1069,6 +1069,15 @@ pub fn change_cleanup_base_url_setting(app: AppHandle, base_url: String) -> Resu
 
 #[tauri::command]
 #[specta::specta]
+pub async fn check_cleanup_server(base_url: String) -> String {
+    crate::llm_client::probe_cleanup_server(&base_url)
+        .await
+        .as_str()
+        .to_string()
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn change_cleanup_model_setting(app: AppHandle, model: String) -> Result<(), String> {
     let mut settings = settings::get_settings(&app);
     settings.cleanup_model = model.trim().to_string();
