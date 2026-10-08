@@ -280,23 +280,30 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio_toolkit::text::punctuate_unless_llm;
+    use crate::audio_toolkit::text::punctuate_for_paste;
 
     #[test]
-    fn cleanup_success_skips_the_period_and_both_paths_keep_the_leading_space() {
-        let cleaned = punctuate_unless_llm(
-            "or not",
-            Some("Okay, I'm going to add another sentence now."),
+    fn cleanup_output_and_the_fallback_keep_a_period_and_the_leading_space() {
+        let cleaned = punctuate_for_paste(
+            "um so the meeting is at three thirty",
+            Some("So the meeting is at 3:30"),
         );
-        assert_eq!(cleaned, "Okay, I'm going to add another sentence now.");
+        assert_eq!(cleaned, "So the meeting is at 3:30.");
         assert_eq!(
             apply_leading_space_with_context(&cleaned, CaretContext::AfterText),
-            " Okay, I'm going to add another sentence now."
+            " So the meeting is at 3:30."
         );
 
-        // Off, failure, and timeout leave no cleanup text, so the period rule
-        // runs and the paste is still separated from the previous dictation.
-        let fallback = punctuate_unless_llm("or not", None);
+        let already_punctuated = punctuate_for_paste("or not", Some("What time is it?"));
+        assert_eq!(already_punctuated, "What time is it?");
+        assert_eq!(
+            apply_leading_space_with_context(&already_punctuated, CaretContext::AfterText),
+            " What time is it?"
+        );
+
+        // Off, failure, and timeout leave no cleanup text. The period rule
+        // still runs, and the paste is still separated from the previous one.
+        let fallback = punctuate_for_paste("or not", None);
         assert_eq!(fallback, "or not.");
         assert_eq!(
             apply_leading_space_with_context(&fallback, CaretContext::AfterText),

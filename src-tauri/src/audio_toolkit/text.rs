@@ -476,13 +476,10 @@ pub fn normalize_transcription_output(text: &str) -> String {
     normalized.trim().to_string()
 }
 
-/// Add a sentence period when the model left the transcript ending on a word.
+/// Add a sentence period when the text ends on a letter or digit.
 ///
-/// Parakeet's batch decoder receives the silence tail and still omits the
-/// final period on longer utterances. This only fills that gap: a transcript
-/// that already ends in punctuation, including a comma or question mark, is
-/// returned unchanged. Call it on the rule-cleaned text, not on a successful
-/// LLM cleanup result.
+/// Parakeet and a local cleanup model both sometimes stop on the last word.
+/// Existing punctuation, including a comma or question mark, is left as written.
 pub fn ensure_terminal_period(text: &str) -> String {
     let trimmed = text.trim_end();
     let Some(last) = trimmed.chars().next_back() else {
@@ -497,16 +494,14 @@ pub fn ensure_terminal_period(text: &str) -> String {
     out
 }
 
-/// Paste text after the optional LLM step.
+/// Text to paste after the optional cleanup step.
 ///
-/// A cleanup result is used as written, so this rule does not add a period
-/// to text a local LLM already punctuated. When cleanup is off or returns
-/// nothing, [`ensure_terminal_period`] runs on the rule-cleaned transcript.
-pub fn punctuate_unless_llm(transcription: &str, llm_text: Option<&str>) -> String {
-    match llm_text {
-        Some(text) => text.to_string(),
-        None => ensure_terminal_period(transcription),
-    }
+/// Cleanup text replaces the transcript when the local model returned some.
+/// The same terminal-period rule then runs on whichever string that is, so a
+/// reply such as "So the meeting is at 3:30" still gains a period. A reply
+/// that already ends in punctuation is unchanged.
+pub fn punctuate_for_paste(transcription: &str, llm_text: Option<&str>) -> String {
+    ensure_terminal_period(llm_text.unwrap_or(transcription))
 }
 
 fn terminal_period_for(last: char) -> char {
@@ -970,19 +965,26 @@ mod tests {
     }
 
     #[test]
-    fn llm_cleanup_is_not_given_a_rule_period() {
-        assert_eq!(punctuate_unless_llm("or not", Some("or not?")), "or not?");
+    fn cleanup_output_gets_the_same_terminal_period() {
         assert_eq!(
-            punctuate_unless_llm("what time is it", Some("What time is it?")),
+            punctuate_for_paste(
+                "um so the meeting is at three thirty",
+                Some("So the meeting is at 3:30")
+            ),
+            "So the meeting is at 3:30."
+        );
+        assert_eq!(punctuate_for_paste("or not", Some("or not?")), "or not?");
+        assert_eq!(
+            punctuate_for_paste("what time is it", Some("What time is it?")),
             "What time is it?"
         );
-        // A successful cleanup that still ends on a letter is left alone.
         assert_eq!(
-            punctuate_unless_llm("ends with a letter", Some("ends with a letter")),
-            "ends with a letter"
+            punctuate_for_paste("ends with a letter", Some("ends with a letter")),
+            "ends with a letter."
         );
+        assert_eq!(punctuate_for_paste("hello,", Some("hello,")), "hello,");
         // Cleanup off, a request error, and the timeout all pass no text.
-        assert_eq!(punctuate_unless_llm("or not", None), "or not.");
-        assert_eq!(punctuate_unless_llm("now.", None), "now.");
+        assert_eq!(punctuate_for_paste("or not", None), "or not.");
+        assert_eq!(punctuate_for_paste("now.", None), "now.");
     }
 }
