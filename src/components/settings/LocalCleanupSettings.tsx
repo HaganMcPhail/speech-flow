@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { commands } from "@/bindings";
 import { SettingContainer, SettingsGroup, ToggleSwitch } from "../ui";
 import { Input } from "../ui/Input";
 import { useSettings } from "../../hooks/useSettings";
@@ -84,6 +85,26 @@ export const LocalCleanupSettings: React.FC = () => {
     isUpdating("cleanup_enabled") ||
     isUpdating("cleanup_base_url") ||
     isUpdating("cleanup_model");
+  const [serverUnreachable, setServerUnreachable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    commands
+      .checkCleanupServer(baseUrl)
+      .then((status) => {
+        if (!cancelled) {
+          setServerUnreachable(status === "unreachable");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerUnreachable(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [baseUrl]);
 
   return (
     <SettingsGroup title={t("settings.general.cleanup.title")}>
@@ -106,6 +127,11 @@ export const LocalCleanupSettings: React.FC = () => {
         disabled={busy}
         onCommit={(value) => updateSetting("cleanup_model", value)}
       />
+      {serverUnreachable && (
+        <p className="px-4 py-3 text-sm text-text/80">
+          {t("settings.general.cleanup.serverUnreachable")}
+        </p>
+      )}
     </SettingsGroup>
   );
 };

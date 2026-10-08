@@ -1,10 +1,25 @@
-# Handy
+# Speech Flow
+
+Speech Flow is a personal fork of [Handy](https://github.com/cjpais/Handy). Handy is MIT licensed, and that license and the attribution to Handy stay in this repository. The installed app is named Speech Flow and uses the bundle id `com.haganmcphail.speechflow`, so macOS Microphone and Accessibility permissions belong to this app and do not collide with an installed Handy.
 
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.com/invite/WVBeWsNXK4)
 
 **A free, open source, and extensible speech-to-text application that works completely offline.**
 
 Handy is a cross-platform desktop application that provides simple, privacy-focused speech transcription. Press a shortcut, speak, and have your words appear in any text field. This happens on your own computer without sending any information to the cloud.
+
+## Install on your Mac
+
+This builds an unsigned app on your own Apple Silicon Mac. You do not need Handy's signing identity, notarization credentials, or updater private key. The build ad-hoc signs Speech Flow so permissions stick to the installed app.
+
+1. From this repository, run `bun install` if you have not already, then `bun run build:mac`. `bun run tauri build` is the same kind of build and also skips updater signing.
+2. The app is `src-tauri/target/release/bundle/macos/Speech Flow.app`. The disk image is under `src-tauri/target/release/bundle/dmg/`.
+3. Drag `Speech Flow.app` into `/Applications`.
+4. On first launch, if macOS says it cannot verify the app or that it is damaged, right-click `Speech Flow` in Applications and choose Open, then Open again. Or open System Settings → Privacy & Security and choose Open Anyway. If it still says the app is damaged, run `xattr -cr "/Applications/Speech Flow.app"` and open it again.
+5. Grant Microphone and Accessibility to **Speech Flow** in System Settings → Privacy & Security. Enable the copy in `/Applications`, not Terminal and not a window left over from `bun run tauri dev`. Quit Speech Flow and open it again after turning Accessibility on.
+6. The menu-bar icon is on by default (Settings → Advanced → Show Tray Icon). Closing the window leaves Speech Flow running there.
+7. Launch at login is Settings → Advanced → Launch on Startup. Start hidden, with only the menu-bar icon, is Settings → Advanced → Start Hidden. Turn those on after the app is in `/Applications`.
+8. To keep Ollama running in the background: `brew services start ollama`. Pull the cleanup model once with `ollama pull qwen2.5:3b` if you have not already. In Speech Flow, open General → Local cleanup. If Ollama is not reachable, that section says so.
 
 ## Why Handy?
 

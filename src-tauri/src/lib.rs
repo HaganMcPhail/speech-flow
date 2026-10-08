@@ -682,6 +682,7 @@ pub fn run(cli_args: CliArgs) {
             shortcut::change_post_process_enabled_setting,
             shortcut::change_cleanup_enabled_setting,
             shortcut::change_cleanup_base_url_setting,
+            shortcut::check_cleanup_server,
             shortcut::change_cleanup_model_setting,
             shortcut::change_experimental_enabled_setting,
             shortcut::change_post_process_base_url_setting,

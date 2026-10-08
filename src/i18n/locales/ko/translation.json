@@ -209,7 +209,8 @@
           "label": "Cleanup model",
           "description": "Model name on that server. qwen2.5:3b is a small model that can finish inside the timeout on Apple Silicon.",
           "placeholder": "qwen2.5:3b"
-        }
+        },
+        "serverUnreachable": "Ollama is not running at this address. Keep it in the background with: brew services start ollama"
       },
       "shortcutActivation": {
         "title": "단축키 동작",
