@@ -280,6 +280,37 @@ mod macos {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio_toolkit::text::punctuate_unless_llm;
+
+    #[test]
+    fn cleanup_success_skips_the_period_and_both_paths_keep_the_leading_space() {
+        let cleaned = punctuate_unless_llm(
+            "or not",
+            Some("Okay, I'm going to add another sentence now."),
+        );
+        assert_eq!(cleaned, "Okay, I'm going to add another sentence now.");
+        assert_eq!(
+            apply_leading_space_with_context(&cleaned, CaretContext::AfterText),
+            " Okay, I'm going to add another sentence now."
+        );
+
+        // Off, failure, and timeout leave no cleanup text, so the period rule
+        // runs and the paste is still separated from the previous dictation.
+        let fallback = punctuate_unless_llm("or not", None);
+        assert_eq!(fallback, "or not.");
+        assert_eq!(
+            apply_leading_space_with_context(&fallback, CaretContext::AfterText),
+            " or not."
+        );
+        assert_eq!(
+            apply_leading_space_with_context(&fallback, CaretContext::Unknown),
+            " or not."
+        );
+        assert_eq!(
+            apply_leading_space_with_context(&fallback, CaretContext::AtStart),
+            "or not."
+        );
+    }
 
     #[test]
     fn no_space_when_the_field_is_empty() {

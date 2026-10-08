@@ -123,6 +123,12 @@ fn should_use_streaming_overlay(style: OverlayStyle, is_streaming: bool) -> bool
 
 const DEFAULT_CLEANUP_PROMPT_ID: &str = "default_improve_transcriptions";
 
+/// The main hotkey cleans up only when the switch is on. The second hotkey
+/// still forces a cleanup request.
+fn cleanup_requested(hotkey_forces_it: bool, cleanup_enabled: bool) -> bool {
+    hotkey_forces_it || cleanup_enabled
+}
+
 fn selected_cleanup_prompt(settings: &AppSettings) -> Option<String> {
     let selected_id = settings
         .post_process_selected_prompt_id
@@ -387,9 +393,10 @@ pub(crate) async fn process_transcription_output(
         }
     }
 
-    // A successful LLM cleanup owns the punctuation, including local cleanup
-    // once that path sets `post_process`. The period rule runs only when
-    // cleanup is off or returns nothing.
+    // `post_processed_text` is set only when cleanup returned text. The main
+    // hotkey does that when cleanup is enabled. Off, a request error, and the
+    // 3s timeout all leave it empty, and the period rule runs on that fallback.
+    // Paste applies the leading space to `final_text` either way.
     final_text = punctuate_unless_llm(&final_text, post_processed_text.as_deref());
 
     ProcessedTranscription {
@@ -614,11 +621,10 @@ impl ShortcutAction for TranscribeAction {
         // Play audio feedback for recording stop
         play_feedback_sound(app, SoundType::Stop);
 
-        let binding_id = binding_id.to_string(); // Clone binding_id for the async task
-                                                 // The main hotkey cleans up when that switch is on. The optional
-                                                 // second hotkey still forces it. Either way the request is the local
-                                                 // loopback model, and cancel drops the request before paste.
-        let post_process = self.post_process || get_settings(app).cleanup_enabled;
+        let binding_id = binding_id.to_string();
+        // Either way the request is the local loopback model, and cancel drops
+        // the request before paste.
+        let post_process = cleanup_requested(self.post_process, get_settings(app).cleanup_enabled);
         let cancel_generation = rm.cancel_generation();
 
         tauri::async_runtime::spawn(async move {
@@ -915,8 +921,8 @@ pub static ACTION_MAP: Lazy<HashMap<String, Arc<dyn ShortcutAction>>> = Lazy::ne
 #[cfg(test)]
 mod tests {
     use super::{
-        complete_unless_cancelled, is_blank_transcription, selected_cleanup_prompt,
-        should_use_streaming_overlay, strip_think_block,
+        cleanup_requested, complete_unless_cancelled, is_blank_transcription,
+        selected_cleanup_prompt, should_use_streaming_overlay, strip_think_block,
     };
     use crate::settings::{get_default_settings, OverlayStyle};
     use std::future;
@@ -924,6 +930,14 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn main_hotkey_cleans_up_only_when_the_switch_is_on() {
+        assert!(!cleanup_requested(false, false));
+        assert!(cleanup_requested(false, true));
+        assert!(cleanup_requested(true, false));
+        assert!(cleanup_requested(true, true));
+    }
 
     #[test]
     fn unset_prompt_still_uses_the_improve_transcriptions_prompt() {

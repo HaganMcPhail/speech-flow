@@ -976,10 +976,13 @@ mod tests {
             punctuate_unless_llm("what time is it", Some("What time is it?")),
             "What time is it?"
         );
+        // A successful cleanup that still ends on a letter is left alone.
         assert_eq!(
             punctuate_unless_llm("ends with a letter", Some("ends with a letter")),
             "ends with a letter"
         );
+        // Cleanup off, a request error, and the timeout all pass no text.
         assert_eq!(punctuate_unless_llm("or not", None), "or not.");
+        assert_eq!(punctuate_unless_llm("now.", None), "now.");
     }
 }
